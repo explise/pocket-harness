@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Pocket Harness</string>
+    <string name="a11y_desc">Pocket Harness — taps and screenshots for vision automation (open chrome and search for cat on the page)</string>
+</resources>

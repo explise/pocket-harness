@@ -1,0 +1,467 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pocket Harness — UI Concept v0.2</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+/* ================= tokens ================= */
+:root{
+  --canvas:#000000;
+  --surface:#131315;
+  --sc-lowest:#0e0e10;
+  --sc-low:#1c1b1d;
+  --sc:#201f22;
+  --sc-high:#2a2a2c;
+  --sc-highest:#353437;
+  --on-surface:#e5e1e4;
+  --on-surface-var:#c7c4d7;
+  --outline:#908fa0;
+  --outline-var:#46454f;
+  --border:#27272a;
+
+  /* brand accents */
+  --indigo:#6366f1;        /* actions, active */
+  --indigo-hi:#818cf8;
+  --cyan:#22d3ee;          /* success / streaming */
+  --amber:#ffb783;         /* partial / media accent */
+  --red:#ff8a7a;           /* failure */
+
+  --mono:'JetBrains Mono',ui-monospace,SFMono-Regular,Menlo,monospace;
+  --sans:'Geist',system-ui,-apple-system,'Segoe UI',sans-serif;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{
+  background:var(--canvas);
+  color:var(--on-surface);
+  font-family:var(--sans);
+  display:flex;align-items:center;justify-content:center;gap:56px;
+  min-height:100vh;padding:32px;
+}
+/* ================= stage ================= */
+.stage{max-width:280px}
+.stage h1{font-size:20px;font-weight:600;letter-spacing:-.01em;line-height:28px}
+.stage p{font-size:13px;line-height:20px;color:var(--on-surface-var);margin-top:8px}
+.kbd{font-family:var(--mono);font-size:11px;color:var(--outline);margin-top:24px;line-height:16px;letter-spacing:.05em;text-transform:uppercase}
+.dot{display:inline-block;width:6px;height:6px;border-radius:9999px;background:var(--cyan);margin-right:8px;animation:pulse 1.6s infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.25}}
+/* ================= phone ================= */
+.phone{
+  position:relative;width:390px;height:844px;flex:none;
+  background:var(--surface);
+  border:1px solid var(--border);border-radius:48px;
+  overflow:hidden;
+}
+.notch{position:absolute;top:12px;left:50%;transform:translateX(-50%);width:120px;height:32px;background:var(--canvas);border:1px solid var(--border);border-radius:9999px;z-index:60}
+.statusbar{
+  height:56px;display:flex;align-items:flex-end;justify-content:space-between;
+  padding:0 28px 6px;font-family:var(--mono);font-size:12px;color:var(--on-surface);
+}
+.sb-icons{display:flex;gap:6px;align-items:center;color:var(--on-surface-var)}
+/* ================= screens ================= */
+.screens{position:absolute;inset:56px 0 76px}
+.screen{position:absolute;inset:0;display:none;flex-direction:column;overflow:hidden}
+.screen.active{display:flex}
+.scroll{overflow-y:auto;padding:0 16px 24px;scrollbar-width:none}
+.scroll::-webkit-scrollbar{display:none}
+/* type helpers */
+.caps{font-family:var(--mono);font-size:11px;font-weight:600;letter-spacing:.05em;color:var(--outline);text-transform:uppercase;margin:24px 0 8px}
+.h-md{font-size:20px;font-weight:600;line-height:28px;letter-spacing:-.01em}
+.disp{font-size:32px;font-weight:600;line-height:40px;letter-spacing:-.02em}
+.mono{font-family:var(--mono)}
+.dim{color:var(--on-surface-var)}
+/* ================= components ================= */
+.card{background:var(--sc-lowest);border:1px solid var(--border);border-radius:8px;padding:12px}
+.btn{font-family:var(--sans);font-size:14px;font-weight:500;border-radius:4px;border:1px solid var(--border);
+     background:transparent;color:var(--on-surface);padding:9px 16px;cursor:pointer}
+.btn.primary{background:var(--indigo);border-color:var(--indigo);color:#fff}
+.btn.block{width:100%;text-align:left}
+.chip{font-family:var(--mono);font-size:12px;color:var(--on-surface-var);border:1px solid var(--border);
+      background:var(--sc-lowest);border-radius:9999px;padding:6px 12px;cursor:pointer;white-space:nowrap}
+.chip:hover{border-color:var(--outline-var)}
+.row{display:flex;align-items:center;gap:12px}
+.grow{flex:1}
+/* detailed status */
+.stat{display:flex;align-items:center;gap:8px;font-family:var(--mono);font-size:11px;letter-spacing:.05em;color:var(--outline)}
+.stat i{width:6px;height:6px;border-radius:9999px;background:var(--zinc,#71717a)}
+.stat.ok i{background:var(--cyan);animation:pulse 1.6s infinite}
+.stat.warn i{background:var(--amber)}
+.stat.err i{background:var(--red)}
+/* thin toggle */
+.tog{position:relative;width:36px;height:20px;flex:none}
+.tog input{opacity:0;width:100%;height:100%;position:absolute;cursor:pointer;z-index:2;margin:0}
+.tog tr{position:absolute;inset:0;border-radius:9999px;background:var(--border);transition:.15s}
+.tog tr::after{content:"";position:absolute;top:5px;left:5px;width:10px;height:10px;border-radius:9999px;background:#fff;transition:.15s}
+.tog input:checked + tr{background:var(--indigo)}
+.tog input:checked + tr::after{left:21px}
+/* segmented */
+.seg{display:flex;background:var(--sc-low);border:1px solid var(--border);border-radius:4px;padding:2px;font-family:var(--mono);font-size:12px}
+.seg span{padding:5px 12px;border-radius:3px;color:var(--outline);cursor:pointer}
+.seg span.on{background:var(--sc-high);border:1px solid var(--border);color:var(--on-surface)}
+/* inputs */
+.inset{background:var(--sc-lowest);border:1px solid var(--border);border-radius:4px;padding:9px 12px;
+       font-family:var(--mono);font-size:13px;color:var(--on-surface);outline:none;width:100%}
+.inset:focus{border-color:var(--indigo)}
+/* ============ bottom nav ============ */
+.nav{
+  position:absolute;left:0;right:0;bottom:0;height:76px;z-index:50;
+  background:rgba(0,0,0,.85);backdrop-filter:blur(8px);
+  border-top:1px solid var(--border);
+  display:flex;justify-content:space-around;align-items:center;padding-bottom:14px;
+}
+.nav button{
+  background:none;border:none;color:var(--outline);cursor:pointer;
+  font-family:var(--mono);font-size:10px;letter-spacing:.05em;
+  display:flex;flex-direction:column;align-items:center;gap:4px;padding:6px 10px;
+}
+.nav button svg{width:22px;height:22px}
+.nav button.on{color:var(--indigo-hi)}
+/* ============ home / console ============ */
+.orb-wrap{display:flex;flex-direction:column;align-items:center;padding:34px 0 18px}
+.orb{
+  width:104px;height:104px;border-radius:9999px;cursor:pointer;border:1px solid var(--border);
+  background:radial-gradient(120px 120px at 50% 30%,#26262b 0%,#101013 70%);
+  display:flex;align-items:center;justify-content:center;position:relative;
+}
+.orb svg{width:38px;height:38px;color:var(--indigo-hi)}
+.orb .ring{position:absolute;inset:-1px;border-radius:9999px;border:1px solid rgba(99,102,241,.55);animation:ring 2.6s infinite}
+.orb .ring:nth-child(2){animation-delay:1.3s}
+@keyframes ring{from{transform:scale(1);opacity:.8}to{transform:scale(1.45);opacity:0}}
+.orb-cap{font-family:var(--mono);font-size:11px;letter-spacing:.05em;color:var(--outline);margin-top:14px;text-transform:uppercase}
+.chips{display:flex;gap:8px;overflow-x:auto;padding:2px 16px 10px;scrollbar-width:none}
+.chips::-webkit-scrollbar{display:none}
+.consolebar{margin-top:auto;padding:10px 16px 14px;border-top:1px solid var(--border);background:var(--surface)}
+.sendrow{display:flex;gap:8px;margin-top:8px}
+.recent{display:flex;flex-direction:column;gap:8px}
+.rcard{display:flex;gap:12px;align-items:flex-start;padding:10px 12px}
+.rcard .t{font-family:var(--mono);font-size:11px;color:var(--outline);min-width:44px;padding-top:2px}
+.rcard .cmd{font-family:var(--mono);font-size:13px;color:var(--on-surface)}
+.rcard .res{font-size:12px;color:var(--on-surface-var);margin-top:2px}
+/* ============ action sheet ============ */
+.backdrop{position:absolute;inset:0;background:rgba(0,0,0,.55);z-index:40;display:none}
+.sheet{
+  position:absolute;left:0;right:0;bottom:76px;z-index:45;
+  background:var(--sc-low);border:1px solid var(--border);border-bottom:none;
+  border-radius:16px 16px 0 0;padding:16px;
+  transform:translateY(110%);transition:transform .28s cubic-bezier(.2,.8,.2,1);
+}
+.sheet.open{transform:translateY(0)}
+.grab{width:36px;height:4px;border-radius:9999px;background:var(--sc-highest);margin:0 auto 14px}
+.step{display:flex;gap:12px;padding:10px 0;border-bottom:1px solid var(--border);align-items:flex-start}
+.step:last-child{border-bottom:none}
+.step .ic{width:20px;height:20px;flex:none;border-radius:9999px;border:1px solid var(--border);
+          display:flex;align-items:center;justify-content:center;font-size:11px;color:var(--outline);font-family:var(--mono)}
+.step.done .ic{border-color:var(--cyan);color:var(--cyan)}
+.step.act .ic{border-color:var(--indigo);color:var(--indigo);animation:pulse 1s infinite}
+.step .name{font-family:var(--mono);font-size:13px;color:var(--on-surface)}
+.step .meta{font-family:var(--mono);font-size:11px;color:var(--outline);margin-top:2px}
+/* ============ skills ============ */
+.skill{display:flex;align-items:center;gap:12px;padding:11px 12px;border:1px solid var(--border);
+       border-radius:8px;background:var(--sc-lowest);margin-bottom:8px;cursor:pointer}
+.skill:hover{border-color:var(--outline-var)}
+.skill .nm{font-size:15px;font-weight:500}
+.skill .ex{font-family:var(--mono);font-size:11px;color:var(--outline);margin-top:2px}
+.tag{font-family:var(--mono);font-size:10px;letter-spacing:.05em;color:var(--amber);
+     border:1px solid var(--border);border-radius:9999px;padding:2px 8px;flex:none}
+/* ============ settings ============ */
+.setrow{display:flex;align-items:center;gap:12px;padding:13px 0;border-bottom:1px solid var(--border)}
+.setrow:last-child{border-bottom:none}
+.setrow .lb{font-size:15px}
+.setrow .sub{font-size:12px;color:var(--on-surface-var);margin-top:2px}
+.perm{display:flex;gap:12px;align-items:center;padding:11px 12px;border:1px solid var(--border);
+      border-radius:8px;background:var(--sc-lowest);margin-bottom:8px}
+.perm .nm{font-size:14px;font-weight:500}
+.perm .st{margin-left:auto}
+</style>
+</head>
+<body>
+
+<!-- ======== stage notes ======== -->
+<div class="stage">
+  <h1>Pocket Harness<br>UI concept v0.2</h1>
+  <p>"Technical Premium": OLED canvas, tonal zinc layers, indigo reserved
+     strictly for action &amp; active state, cyan for streaming/success.</p>
+  <div class="kbd"><span class="dot"></span>clickable prototype<br><br>try a chip → it fills the console.<br>hit ⚡ to watch the plan run.</div>
+</div>
+
+<!-- ======== phone ======== -->
+<div class="phone">
+  <div class="notch"></div>
+  <div class="statusbar">
+    <span id="clock">09:41</span>
+    <span class="sb-icons">
+      <svg width="16" height="12" viewBox="0 0 16 12" fill="currentColor"><rect x="0" y="7" width="3" height="5" rx="1"/><rect x="4.5" y="4.5" width="3" height="7.5" rx="1"/><rect x="9" y="2" width="3" height="10" rx="1"/><rect x="13" y="0" width="3" height="12" rx="1"/></svg>
+      <svg width="22" height="12" viewBox="0 0 22 12" fill="none" stroke="currentColor"><rect x="1" y="1" width="17" height="10" rx="3"/><rect x="3" y="3" width="11" height="6" rx="1.5" fill="currentColor" stroke="none"/><path d="M20 4v4" stroke-linecap="round"/></svg>
+    </span>
+  </div>
+
+<div class="screens">
+
+  <!-- ================= ONBOARDING ================= -->
+  <section class="screen active" id="scr-onboard">
+    <div class="scroll grow" style="padding-top:44px">
+      <div class="stat ok" style="margin-bottom:18px"><i></i>HARNESS CORE ONLINE</div>
+      <div class="disp">Give the harness<br>its hands.</div>
+      <p class="dim" style="margin-top:10px;font-size:15px;line-height:24px">Pocket Harness works fully offline. Each capability below is granted natively — nothing leaves the device.</p>
+
+      <div class="caps">Native grants</div>
+
+      <div class="perm" id="perm-write">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#89ceff" stroke-width="1.6"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+        <div class="grow"><div class="nm">Modify system settings</div><div class="sub dim" style="font-size:12px">brightness · volume levels</div></div>
+        <button class="btn" onclick="grant(this,'#perm-write')">Grant</button>
+      </div>
+
+      <div class="perm" id="perm-a11y">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#89ceff" stroke-width="1.6"><rect x="5" y="3" width="14" height="18" rx="2"/><path d="M9 18h6"/></svg>
+        <div class="grow"><div class="nm">Accessibility service <span class="tag" style="margin-left:6px">v0.2</span></div><div class="sub dim" style="font-size:12px">taps, screenshots, global back/home</div></div>
+        <button class="btn" onclick="grant(this,'#perm-a11y')">Grant</button>
+      </div>
+
+      <div class="perm" id="perm-mic">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#89ceff" stroke-width="1.6"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 10v1a7 7 0 0 0 14 0v-1M12 18v4"/></svg>
+        <div class="grow"><div class="nm">Microphone</div><div class="sub dim" style="font-size:12px">voice commands via recognizer intent</div></div>
+        <button class="btn" onclick="grant(this,'#perm-mic')">Grant</button>
+      </div>
+
+      <div style="margin-top:28px;display:flex;gap:8px">
+        <button class="btn grow" onclick="go('home')">Later</button>
+        <button class="btn primary grow" onclick="go('home')">Start harnessing ⚡</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= HOME / CONSOLE ================= -->
+  <section class="screen" id="scr-home">
+    <div class="row" style="padding:6px 16px 0">
+      <div class="grow">
+        <div class="h-md">Console</div>
+        <div class="stat ok" style="margin-top:4px"><i></i>23 verbs · offline core</div>
+      </div>
+      <div class="seg"><span>Auto</span><span class="on">Manual</span></div>
+    </div>
+
+    <div class="orb-wrap">
+      <div class="orb" onclick="go('home');flash('listening…')">
+        <span class="ring"></span><span class="ring"></span>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 10v1a7 7 0 0 0 14 0v-1M12 18v4"/></svg>
+      </div>
+      <div class="orb-cap">tap to talk · or type below</div>
+    </div>
+
+    <div class="chips">
+      <span class="chip" data-fill="open youtube and play tu hi to hai">open youtube and play tu hi to hai</span>
+      <span class="chip" data-fill="torch off">torch off</span>
+      <span class="chip" data-fill="set volume to 30%">set volume to 30%</span>
+      <span class="chip" data-fill="navigate to kfc">navigate to kfc</span>
+    </div>
+
+    <div class="scroll grow" style="padding-top:4px">
+      <div class="caps">Recent runs</div>
+      <div class="recent">
+        <div class="card rcard"><span class="t">09:38</span>
+          <div><div class="cmd">play tu hi to hai</div><div class="res">YouTube · autoplay started</div></div></div>
+        <div class="card rcard"><span class="t">09:31</span>
+          <div><div class="cmd">brightness 40%</div><div class="res">settings · applied</div></div></div>
+        <div class="card rcard"><span class="t">09:27</span>
+          <div><div class="cmd">open insta</div><div class="res">fuzzy-matched Instagram in 12 ms</div></div></div>
+      </div>
+    </div>
+
+    <div class="consolebar">
+      <input class="inset" id="cmdline" placeholder='say it — e.g. "open chrome"' autocomplete="off">
+      <div class="sendrow">
+        <button class="btn grow" onclick="flash('🎙 listening…')">Hold to talk</button>
+        <button class="btn primary" style="padding-left:22px;padding-right:22px" onclick="demoRun()">⚡ Do it</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= HISTORY ================= -->
+  <section class="screen" id="scr-history">
+    <div style="padding:6px 16px 0">
+      <div class="h-md">Runs</div>
+      <input class="inset" style="margin-top:12px" placeholder="grep history…">
+    </div>
+    <div class="scroll grow">
+      <div class="caps">Today</div>
+
+      <div class="card" style="margin-bottom:8px">
+        <div class="row"><span class="mono dim" style="font-size:11px">09:38:12</span><span class="grow"></span>
+          <span class="stat ok"><i></i>DONE·380MS</span></div>
+        <div class="mono" style="font-size:13px;margin-top:8px">open youtube and play tu hi to hai</div>
+        <div class="dim" style="font-size:12px;margin-top:4px">2 steps · YouTube launched · media intent accepted</div>
+      </div>
+
+      <div class="card" style="margin-bottom:8px">
+        <div class="row"><span class="mono dim" style="font-size:11px">09:31:02</span><span class="grow"></span>
+          <span class="stat warn"><i></i>PARTIAL</span></div>
+        <div class="mono" style="font-size:13px;margin-top:8px">brightness 40% and call mom</div>
+        <div class="dim" style="font-size:12px;margin-top:4px">step 2 needs READ_CONTACTS (v0.3)</div>
+      </div>
+
+      <div class="card" style="margin-bottom:8px">
+        <div class="row"><span class="mono dim" style="font-size:11px">09:27:44</span><span class="grow"></span>
+          <span class="stat err"><i></i>NOMATCH</span></div>
+        <div class="mono" style="font-size:13px;margin-top:8px">make me a sandwich</div>
+        <div class="dim" style="font-size:12px;margin-top:4px">no rule matched — suggestions shown</div>
+      </div>
+
+      <div class="caps">Yesterday</div>
+      <div class="card" style="margin-bottom:8px">
+        <div class="row"><span class="mono dim" style="font-size:11px">22:04:59</span><span class="grow"></span>
+          <span class="stat ok"><i></i>DONE·41MS</span></div>
+        <div class="mono" style="font-size:13px;margin-top:8px">torch off</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= SKILLS ================= -->
+  <section class="screen" id="scr-skills">
+    <div style="padding:6px 16px 0">
+      <div class="h-md">Skills</div>
+      <div class="stat" style="margin-top:4px"><i></i>TAP ANY SKILL TO PRELOAD IT IN THE CONSOLE</div>
+    </div>
+    <div class="scroll grow">
+      <div class="caps">Apps</div>
+      <div class="skill" data-fill="open youtube"><div class="grow"><div class="nm">Launch app</div><div class="ex">"open insta" · fuzzy over all installed apps</div></div></div>
+
+      <div class="caps">Media</div>
+      <div class="skill" data-fill="play tu hi to hai"><div class="grow"><div class="nm">Play media</div><div class="ex">"play take five on spotify"</div></div><span class="tag">YT·YTM·SPOTIFY</span></div>
+      <div class="skill" data-fill="volume up"><div class="grow"><div class="nm">Volume</div><div class="ex">"set volume to 30%" · mute</div></div></div>
+
+      <div class="caps">Device</div>
+      <div class="skill" data-fill="torch on"><div class="grow"><div class="nm">Flashlight</div><div class="ex">"torch off"</div></div></div>
+      <div class="skill" data-fill="brightness 40%"><div class="grow"><div class="nm">Brightness</div><div class="ex">"max brightness"</div></div></div>
+      <div class="skill" data-fill="battery"><div class="grow"><div class="nm">Battery status</div><div class="ex">"battery"</div></div></div>
+      <div class="skill" data-fill="take a screenshot"><div class="grow"><div class="nm">Screenshot</div><div class="ex">via accessibility service</div></div><span class="tag">v0.2</span></div>
+
+      <div class="caps">Comms</div>
+      <div class="skill" data-fill="call 9876543210"><div class="grow"><div class="nm">Call</div><div class="ex">"call 98765…" · dialer handoff</div></div></div>
+      <div class="skill" data-fill="text dad saying omw"><div class="grow"><div class="nm">Text</div><div class="ex">"text dad saying omw"</div></div></div>
+
+      <div class="caps">Web</div>
+      <div class="skill" data-fill="navigate to kfc"><div class="grow"><div class="nm">Navigate</div><div class="ex">"navigate to kempegowda airport"</div></div></div>
+      <div class="skill" data-fill="search for best filter coffee"><div class="grow"><div class="nm">Search</div><div class="ex">"google best filter coffee"</div></div></div>
+    </div>
+  </section>
+
+  <!-- ================= SETTINGS ================= -->
+  <section class="screen" id="scr-settings">
+    <div style="padding:6px 16px 0">
+      <div class="h-md">Settings</div>
+    </div>
+    <div class="scroll grow">
+      <div class="caps">Behavior</div>
+      <div class="card" style="padding:4px 12px">
+        <div class="setrow"><div class="grow"><div class="lb">Haptic confirm</div><div class="sub">vibrate on step completion</div></div>
+          <label class="tog"><input type="checkbox" checked><tr></tr></label></div>
+        <div class="setrow"><div class="grow"><div class="lb">Spoken replies</div><div class="sub">TTS confirms each step</div></div>
+          <label class="tog"><input type="checkbox"><tr></tr></label></div>
+        <div class="setrow"><div class="grow"><div class="lb">Wake word <span class="tag" style="margin-left:6px">v0.4</span></div><div class="sub">'hey harness' listening</div></div>
+          <label class="tog"><input type="checkbox" disabled><tr style="opacity:.4"></tr></label></div>
+      </div>
+
+      <div class="caps">Permissions</div>
+      <div class="card" style="padding:4px 12px">
+        <div class="setrow"><div class="grow"><div class="lb">Modify system settings</div></div><span class="stat ok"><i></i>GRANTED</span></div>
+        <div class="setrow"><div class="grow"><div class="lb">Accessibility service</div></div><span class="stat warn"><i></i>v0.2</span></div>
+        <div class="setrow"><div class="grow"><div class="lb">Query all packages</div></div><span class="stat ok"><i></i>GRANTED</span></div>
+      </div>
+
+      <div class="caps">Engine</div>
+      <div class="card">
+        <div class="row" style="font-family:var(--mono);font-size:12px;line-height:20px">
+          <span class="dim grow">build</span><span>0.1-proto</span></div>
+        <div class="row" style="font-family:var(--mono);font-size:12px;line-height:20px;margin-top:6px">
+          <span class="dim grow">planner</span><span>rules v1 · offline</span></div>
+        <div class="row" style="font-family:var(--mono);font-size:12px;line-height:20px;margin-top:6px">
+          <span class="dim grow">llm planner</span><span style="color:var(--amber)">v0.3 slot</span></div>
+      </div>
+    </div>
+  </section>
+
+</div><!-- /screens -->
+
+<!-- ================= ACTION SHEET ================= -->
+<div class="backdrop" id="backdrop"></div>
+<div class="sheet" id="sheet">
+  <div class="grab"></div>
+  <div class="row"><div class="h-md grow">Plan</div><span class="stat ok" id="planStat"><i></i>RUNNING</span></div>
+  <div class="mono dim" id="planCmd" style="font-size:12px;margin:6px 0 8px">open youtube and play tu hi to hai</div>
+  <div id="steps">
+    <div class="step done"><div class="ic">✓</div><div><div class="name">Parse intent</div><div class="meta">2 clauses · rules v1 · 3 ms</div></div></div>
+    <div class="step pending" data-i="1"><div class="ic">2</div><div><div class="name">Open YouTube</div><div class="meta">launch intent · QUERY_ALL_PACKAGES</div></div></div>
+    <div class="step pending" data-i="2"><div class="ic">3</div><div><div class="name">Play “tu hi to hai”</div><div class="meta">MEDIA_PLAY_FROM_SEARCH → com.google.android.youtube</div></div></div>
+  </div>
+  <div class="sendrow" style="margin-top:12px">
+    <span class="mono dim grow" id="runMeta" style="font-size:11px;align-self:center">executing…</span>
+    <button class="btn" onclick="closeSheet()">Dismiss</button>
+  </div>
+</div>
+
+<!-- ================= NAV ================= -->
+<nav class="nav">
+  <button data-go="home" class="on"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 11 12 3l9 8M5.5 9.5V21h13V9.5"/></svg>CONSOLE</button>
+  <button data-go="history"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>RUNS</button>
+  <button data-go="skills"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="4" y="4" width="7" height="7" rx="1"/><rect x="13" y="4" width="7" height="7" rx="1"/><rect x="4" y="13" width="7" height="7" rx="1"/><rect x="13" y="13" width="7" height="7" rx="1"/></svg>SKILLS</button>
+  <button data-go="settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>SETTINGS</button>
+</nav>
+</div><!-- /phone -->
+
+<script>
+const $=s=>document.querySelector(s),$$=s=>document.querySelectorAll(s);
+
+function go(name){
+  $$('.screen').forEach(s=>s.classList.remove('active'));
+  $('#scr-'+name).classList.add('active');
+  $$('.nav button').forEach(b=>b.classList.toggle('on',b.dataset.go===name));
+}
+$$('.nav button').forEach(b=>b.onclick=()=>go(b.dataset.go));
+
+/* chips + skills preload the console */
+$$('[data-fill]').forEach(el=>el.addEventListener('click',()=>{
+  $('#cmdline').value=el.dataset.fill;
+  if(!el.classList.contains('chip')) go('home');
+}));
+
+function flash(msg){ const c=$('#cmdline'); c.value=msg==='listening…'?c.value:c.value; }
+
+/* onboarding grants */
+function grant(btn,id){ $(id).querySelector('.stat,.btn')?.remove?.(); btn.outerHTML='<span class="stat ok"><i></i>GRANTED</span>'; }
+
+/* fake plan runner */
+let timers=[];
+function demoRun(){
+  timers.forEach(clearTimeout); timers=[];
+  const cmd=$('#cmdline').value.trim()||'open youtube and play tu hi to hai';
+  $('#planCmd').textContent=cmd;
+  const steps=[...$$('#steps .step')];
+  steps.slice(1).forEach(s=>{s.className='step pending';s.querySelector('.ic').textContent=s.dataset.i;});
+  $('#runMeta').textContent='executing…';
+  $('#planStat').innerHTML='<i></i>RUNNING'; $('#planStat').className='stat ok';
+  $('#backdrop').style.display='block'; $('#sheet').classList.add('open');
+  let t=400;
+  steps.slice(1).forEach((s,idx)=>{
+    timers.push(setTimeout(()=>s.className='step act',t));
+    t+=900;
+    timers.push(setTimeout(()=>{s.className='step done';s.querySelector('.ic').textContent='✓';},t));
+    t+=150;
+  });
+  timers.push(setTimeout(()=>{
+    $('#runMeta').textContent='done in '+(380+Math.floor(Math.random()*300))+' ms';
+    $('#planStat').innerHTML='<i></i>DONE';
+  },t+200));
+}
+function closeSheet(){$('#sheet').classList.remove('open');$('#backdrop').style.display='none';timers.forEach(clearTimeout);}
+$('#backdrop').onclick=closeSheet;
+
+/* live-ish clock */
+const d=new Date();$('#clock').textContent=d.toTimeString().slice(0,5);
+</script>
+</body>
+</html>

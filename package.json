@@ -1,0 +1,11 @@
+{
+  "name": "pocket-harness",
+  "version": "0.5.0",
+  "description": "Pure-APK Android agent: natural-language phone control executed on-device, with an optional AI planner.",
+  "private": true,
+  "scripts": {
+    "setup": "./setup-toolchain.sh",
+    "build": "./build.sh"
+  },
+  "license": "MIT"
+}
