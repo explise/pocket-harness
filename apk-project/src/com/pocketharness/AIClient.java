@@ -128,6 +128,35 @@ public class AIClient {
         void onError(String msg);
     }
 
+    public interface AnswerCb {
+        void onAnswer(String answer, long ms);
+        void onError(String msg, long ms);
+    }
+
+    /** turn visible page text into a short answer for the user */
+    public static void answer(final Cfg cfg, final String goal, final String pageText, final AnswerCb cb) {
+        POOL.execute(new Runnable() { public void run() {
+            long t0 = SystemClock.elapsedRealtime();
+            String text = pageText == null ? "" : pageText;
+            if (text.length() > 6000) text = text.substring(0, 6000);
+            String prompt = "You are reading a phone screen to answer the user.\n"
+                    + "Question: \"" + goal.trim() + "\"\n"
+                    + "Visible page text:\n" + text + "\n"
+                    + "Reply with a concise answer in plain text (2-4 sentences max). No markdown, no preamble.\n"
+                    + "If the page does not contain the answer, reply exactly: not found";
+            try {
+                String reply = "opencode".equals(cfg.mode) ? viaOpenCode(cfg, prompt) : viaOpenAI(cfg, prompt);
+                long ms = Math.max(1, SystemClock.elapsedRealtime() - t0);
+                android.util.Log.i("PH_AI", "answer OK in " + ms + " ms: " + reply);
+                cb.onAnswer(reply.trim(), ms);
+            } catch (Exception e) {
+                long ms = Math.max(1, SystemClock.elapsedRealtime() - t0);
+                android.util.Log.w("PH_AI", "answer FAILED after " + ms + " ms", e);
+                cb.onError(friendly(e), ms);
+            }
+        }});
+    }
+
     // ---- observe → act loop: one action per screenshot ----
 
     public interface StepCb {

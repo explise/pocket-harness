@@ -174,15 +174,22 @@ public class HarnessService extends AccessibilityService {
                         : desc != null ? desc.toString() : "";
                 label = label.replaceAll("\\s+", " ").trim();
                 if (label.length() > 64) label = label.substring(0, 64);
-                Node nd = new Node();
-                nd.x1 = r.left; nd.y1 = r.top; nd.x2 = r.right; nd.y2 = r.bottom;
-                nd.cls = String.valueOf(n.getClassName())
-                        .replace("android.widget.", "").replace("android.view.", "");
-                nd.label = label;
-                nd.clickable = n.isClickable();
-                nd.editable = n.isEditable();
-                nd.scrollable = n.isScrollable();
-                out.add(nd);
+                String lc = label.toLowerCase(java.util.Locale.US);
+                boolean noise = lc.equals("install") || lc.startsWith("install ")
+                        || lc.equals("update") || lc.startsWith("update ")
+                        || lc.equals("get app") || lc.equals("open in app")
+                        || lc.equals("subscribe");
+                if (!noise) {
+                    Node nd = new Node();
+                    nd.x1 = r.left; nd.y1 = r.top; nd.x2 = r.right; nd.y2 = r.bottom;
+                    nd.cls = String.valueOf(n.getClassName())
+                            .replace("android.widget.", "").replace("android.view.", "");
+                    nd.label = label;
+                    nd.clickable = n.isClickable();
+                    nd.editable = n.isEditable();
+                    nd.scrollable = n.isScrollable();
+                    out.add(nd);
+                }
             }
         }
         for (int i = 0; i < n.getChildCount(); i++) collect(n.getChild(i), out, depth + 1);
@@ -219,6 +226,37 @@ public class HarnessService extends AccessibilityService {
         Node n = nodes.get(idx - 1);
         Log.i("PH_A11Y", "click #" + idx + " · " + n.cls + " \"" + n.label + "\"");
         return tap((n.x1 + n.x2) / 2, (n.y1 + n.y2) / 2);
+    }
+
+    /** all visible text on screen, newline-joined — for research / answers */
+    public static String pageText() {
+        if (instance == null) return "";
+        StringBuilder sb = new StringBuilder();
+        try { collectText(instance.getRootInActiveWindow(), sb, 0); }
+        catch (Throwable e) { Log.w("PH_A11Y", "pageText failed: " + e); }
+        String[] lines = sb.toString().split("\n");
+        StringBuilder out = new StringBuilder();
+        String prev = null;
+        for (String ln : lines) {
+            String t = ln.trim();
+            if (t.isEmpty() || t.equals(prev)) continue;
+            out.append(t).append("\n");
+            prev = t;
+            if (out.length() > 8000) break;
+        }
+        return out.toString();
+    }
+
+    private static void collectText(AccessibilityNodeInfo n, StringBuilder sb, int depth) {
+        if (n == null || depth > 40 || sb.length() > 12000) return;
+        CharSequence pkg = n.getPackageName();
+        if (pkg != null && "com.pocketharness".contentEquals(pkg)) return;
+        if (n.isVisibleToUser()) {
+            CharSequence t = n.getText();
+            if (t == null || t.length() == 0) t = n.getContentDescription();
+            if (t != null && t.length() > 1) sb.append(t.toString()).append("\n");
+        }
+        for (int i = 0; i < n.getChildCount(); i++) collectText(n.getChild(i), sb, depth + 1);
     }
 
     /** draw numbered boxes over the screenshot for set-of-mark prompting */

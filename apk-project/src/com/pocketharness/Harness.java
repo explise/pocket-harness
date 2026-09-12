@@ -95,6 +95,7 @@ public class Harness {
         if (l.contains("torch") || l.contains("flashlight")) return torch(l);
         if ((m = rx("^(?:call|dial)\\s+(.+)$", l)) != null) return call(m.group(1));
         if ((m = rx("^text\\s+(.+)$", l)) != null) return sms(c.substring(4).trim());
+        if ((m = rx("^(?:go to|visit)\\s+(.+)$", l)) != null) return openSite(m.group(1));
         if ((m = rx("^(?:navigate to|directions to|take me to)\\s+(.+)$", l)) != null)
             return nav(m.group(1));
         if ((m = rx("^(?:search for|google|look up)\\s+(.+)$", l)) != null)
@@ -420,6 +421,16 @@ public class Harness {
 
     private List<String> nav(String place) {
         return view(Uri.parse("geo:0,0?q=" + enc(place)), "Maps navigation → " + place);
+    }
+
+    private List<String> openSite(String name) {
+        String raw = name.trim();
+        String n = raw.toLowerCase(Locale.US).replace(" ", "");
+        String url;
+        if (n.equals("wikipedia") || n.equals("wiki")) url = "https://en.wikipedia.org";
+        else if (n.contains(".")) url = n.startsWith("http") ? n : "https://" + n;
+        else return webSearch(raw);
+        return view(Uri.parse(url), "opened " + raw);
     }
 
     private List<String> webSearch(String q) {

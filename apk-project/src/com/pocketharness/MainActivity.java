@@ -85,6 +85,10 @@ public class MainActivity extends Activity {
     EditText cmdInput;
     TextView aiTestStat;
     LinearLayout recentFeed;
+    LinearLayout answersBox;
+    ScrollView chatScroll;
+    LinearLayout chatBox;
+    boolean chatSavedForRun = false;
     String currentScreen = "home";
 
     // plan sheet refs
@@ -94,6 +98,7 @@ public class MainActivity extends Activity {
     int runSeq = 0; // guards auto-dismiss against newer runs / manual dismiss
     static final int VISION_MAX_STEPS = 16;
     boolean visionLoopActive = false; // observe→act agent running
+    boolean readAttempted = false;    // research goal already tried a page read
     TextView planCmd, runMeta;
 
     // voice hold-to-talk refs
@@ -326,7 +331,7 @@ public class MainActivity extends Activity {
     ImageView icon(int res, int tint, int sizeDp) {
         ImageView iv = new ImageView(this);
         iv.setImageResource(res);
-        iv.setColorFilter(tint);
+        if (tint != 0) iv.setColorFilter(tint);
         iv.setLayoutParams(new ViewGroup.LayoutParams(dp(sizeDp), dp(sizeDp)));
         return iv;
     }
@@ -562,15 +567,26 @@ public class MainActivity extends Activity {
     View screenHome() {
         LinearLayout root = col(VERT);
 
-        // ---- header: title + wake pill + status ----------------------------
-        LinearLayout head = col(VERT);
-        pad(head, 20, 12, 20, 4);
+        // ---- chat header: avatar + name + status + wake ---------------------
+        LinearLayout head = col(HORIZ);
+        head.setGravity(Gravity.CENTER_VERTICAL);
+        head.setBackgroundColor(CARD);
+        pad(head, 16, 10, 16, 10);
 
-        LinearLayout titleRow = col(HORIZ);
-        titleRow.setGravity(Gravity.CENTER_VERTICAL);
-        TextView title = tv("Console", 28, ON_SURF, true, false);
-        title.setLetterSpacing(-0.02f);
-        titleRow.addView(title, lp(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        FrameLayout av = new FrameLayout(this);
+        av.setBackground(box(999, 0xFF1B1740, BORDER));
+        av.addView(icon(R.drawable.ic_robot, 0, 38),
+                new FrameLayout.LayoutParams(dp(38), dp(38), Gravity.CENTER));
+        head.addView(av, lp(dp(40), dp(40)));
+
+        LinearLayout mid = col(VERT);
+        pad(mid, 12, 0, 8, 0);
+        mid.addView(tv("Pocket Harness", 17, ON_SURF, true, false));
+        AIClient.Cfg hcfg = AIClient.load(sp);
+        String hsub = hcfg.ready() ? "online · " + hcfg.shortModel()
+                : skillCount() + " verbs · offline core";
+        mid.addView(tv(hsub, 11, MUTED, false, true));
+        head.addView(mid, lp(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
 
         LinearLayout wakePill = col(HORIZ);
         wakePill.setGravity(Gravity.CENTER_VERTICAL);
@@ -587,72 +603,29 @@ public class MainActivity extends Activity {
         wlp.leftMargin = dp(7);
         wakePill.addView(wakeLbl, wlp);
         wakePill.setOnClickListener(v -> showScreen("settings"));
-        titleRow.addView(wakePill);
-        head.addView(titleRow);
-
-        TextView status = tv(skillCount() + " verbs  ·  offline core", 12, MUTED, false, true);
-        pad(status, 0, 6, 0, 0);
-        head.addView(status);
+        head.addView(wakePill);
         root.addView(head);
 
-        // ---- composer: the primary action ---------------------------------
-        LinearLayout composer = col(VERT);
-        composer.setBackground(box(R_LG, CARD, BORDER));
-        composer.setElevation(dp(2));
-        pad(composer, 14, 14, 14, 14);
-        LinearLayout.LayoutParams composerLp = lp(ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT);
-        composerLp.leftMargin = dp(16);
-        composerLp.rightMargin = dp(16);
-        composerLp.topMargin = dp(8);
+        View hair = new View(this);
+        hair.setBackgroundColor(BORDER);
+        root.addView(hair, lp(ViewGroup.LayoutParams.MATCH_PARENT, 1));
 
-        LinearLayout inputRow = col(HORIZ);
-        inputRow.setGravity(Gravity.CENTER_VERTICAL);
-        cmdInput = new EditText(this);
-        cmdInput.setHint("say it — e.g. \"open chrome\"");
-        cmdInput.setHintTextColor(OUTLINE);
-        cmdInput.setTextColor(ON_SURF);
-        cmdInput.setTextSize(15);
-        cmdInput.setTypeface(fSans);
-        cmdInput.setBackground(box(R_SM, INSET, BORDER));
-        cmdInput.setPadding(dp(16), dp(14), dp(16), dp(14));
-        cmdInput.setSingleLine(true);
-        cmdInput.setImeOptions(EditorInfo.IME_ACTION_GO);
-        cmdInput.setOnFocusChangeListener((v, has) ->
-                v.setBackground(box(R_SM, INSET, has ? INDIGO : BORDER)));
-        cmdInput.setOnEditorActionListener((v, a, ev) -> { runCommand(); return true; });
-        inputRow.addView(cmdInput, lp(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        // ---- chat thread -----------------------------------------------------
+        chatScroll = new ScrollView(this);
+        chatScroll.setVerticalScrollBarEnabled(false);
+        chatBox = col(VERT);
+        pad(chatBox, 12, 12, 12, 12);
+        refreshChat();
+        chatScroll.addView(chatBox, new ViewGroup.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        root.addView(chatScroll, lp(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
 
-        FrameLayout micBtn = new FrameLayout(this);
-        micBtn.setBackground(box(999, SC_LOW, BORDER));
-        micBtn.setClickable(true);
-        micBtn.addView(icon(R.drawable.ic_mic, INDIGO_HI, 22),
-                new FrameLayout.LayoutParams(dp(22), dp(22), Gravity.CENTER));
-        micBtn.setOnClickListener(v -> startSpeech());
-        LinearLayout.LayoutParams micLp = lp(dp(50), dp(50));
-        micLp.leftMargin = dp(10);
-        inputRow.addView(micBtn, micLp);
-        composer.addView(inputRow);
-
-        Button run = button("Run command", true);
-        run.setCompoundDrawablesWithIntrinsicBounds(R.drawable.ic_bolt, 0, 0, 0);
-        run.setCompoundDrawablePadding(dp(8));
-        for (android.graphics.drawable.Drawable d : run.getCompoundDrawables()) if (d != null) d.setTint(Color.WHITE);
-        run.setGravity(Gravity.CENTER);
-        run.setOnClickListener(v -> runCommand());
-        LinearLayout.LayoutParams runLp = lp(ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT);
-        runLp.topMargin = dp(10);
-        composer.addView(run, runLp);
-
-        root.addView(composer, composerLp);
-
-        // ---- quick suggestions ---------------------------------------------
+        // ---- quick suggestions ----------------------------------------------
         HorizontalScrollView chipsHs = new HorizontalScrollView(this);
         chipsHs.setHorizontalScrollBarEnabled(false);
         LinearLayout chips = col(HORIZ);
-        pad(chips, 16, 12, 16, 2);
-        String[] examples = {"open youtube", "torch off", "set volume to 30%", "navigate to kfc", "battery"};
+        pad(chips, 12, 4, 12, 4);
+        String[] examples = {"check messages", "go to wikipedia", "torch off", "battery"};
         for (String e : examples) {
             TextView ch = chip(e);
             LinearLayout.LayoutParams clp = lp(ViewGroup.LayoutParams.WRAP_CONTENT,
@@ -663,26 +636,52 @@ public class MainActivity extends Activity {
         chipsHs.addView(chips);
         root.addView(chipsHs, lp(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
-        // ---- recent runs ----------------------------------------------------
-        LinearLayout recentHead = col(HORIZ);
-        recentHead.setGravity(Gravity.CENTER_VERTICAL);
-        pad(recentHead, 20, 16, 20, 8);
-        recentHead.addView(caps("recent runs"), lp(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
-        root.addView(recentHead);
+        // ---- composer dock ----------------------------------------------------
+        View hair2 = new View(this);
+        hair2.setBackgroundColor(BORDER);
+        root.addView(hair2, lp(ViewGroup.LayoutParams.MATCH_PARENT, 1));
 
-        ScrollView feedScroll = new ScrollView(this);
-        recentFeed = col(VERT);
-        pad(recentFeed, 16, 0, 16, 24);
-        refreshRecentFeed();
-        feedScroll.addView(recentFeed, new ViewGroup.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-        root.addView(feedScroll, lp(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
+        LinearLayout dock = col(HORIZ);
+        dock.setGravity(Gravity.CENTER_VERTICAL);
+        dock.setBackgroundColor(CARD);
+        pad(dock, 10, 8, 10, 8);
 
-        // gentle entry on the focal card
-        composer.setAlpha(0f);
-        composer.setTranslationY(dp(10));
-        composer.animate().alpha(1f).translationY(0).setDuration(360)
-                .setInterpolator(new android.view.animation.DecelerateInterpolator(1.4f)).start();
+        cmdInput = new EditText(this);
+        cmdInput.setHint("message pocket harness…");
+        cmdInput.setHintTextColor(OUTLINE);
+        cmdInput.setTextColor(ON_SURF);
+        cmdInput.setTextSize(15);
+        cmdInput.setTypeface(fSans);
+        cmdInput.setBackground(box(999, INSET, BORDER));
+        cmdInput.setPadding(dp(18), dp(12), dp(18), dp(12));
+        cmdInput.setSingleLine(true);
+        cmdInput.setImeOptions(EditorInfo.IME_ACTION_GO);
+        cmdInput.setOnFocusChangeListener((v, has) ->
+                v.setBackground(box(999, INSET, has ? INDIGO : BORDER)));
+        cmdInput.setOnEditorActionListener((v, a, ev) -> { runCommand(); return true; });
+        dock.addView(cmdInput, lp(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+
+        FrameLayout micBtn = new FrameLayout(this);
+        micBtn.setBackground(box(999, SC_LOW, BORDER));
+        micBtn.setClickable(true);
+        micBtn.addView(icon(R.drawable.ic_mic, INDIGO_HI, 20),
+                new FrameLayout.LayoutParams(dp(20), dp(20), Gravity.CENTER));
+        micBtn.setOnClickListener(v -> startSpeech());
+        LinearLayout.LayoutParams micLp = lp(dp(44), dp(44));
+        micLp.leftMargin = dp(8);
+        dock.addView(micBtn, micLp);
+
+        FrameLayout sendBtn = new FrameLayout(this);
+        sendBtn.setBackground(box(999, INDIGO, 0));
+        sendBtn.setClickable(true);
+        sendBtn.setElevation(dp(1));
+        sendBtn.addView(icon(R.drawable.ic_send, Color.WHITE, 20),
+                new FrameLayout.LayoutParams(dp(20), dp(20), Gravity.CENTER));
+        sendBtn.setOnClickListener(v -> runCommand());
+        LinearLayout.LayoutParams sendLp = lp(dp(46), dp(46));
+        sendLp.leftMargin = dp(8);
+        dock.addView(sendBtn, sendLp);
+        root.addView(dock);
 
         // preload a command chosen on the Skills screen
         String pending = sp.getString("pending_cmd", "");
@@ -1808,6 +1807,7 @@ public class MainActivity extends Activity {
 
     void openSheet(String cmd) {
         runSeq++;
+        chatSavedForRun = false;
         planCmd.setText("> " + cmd);
         runMeta.setText("executing…");
         setStatusChip("running", INDIGO_HI, true);
@@ -1827,12 +1827,22 @@ public class MainActivity extends Activity {
                 .withEndAction(() -> backdrop.setVisibility(View.GONE)).start();
     }
 
+    /** after a successful run, surface the console again so the user lands on the result */
+    void bringToConsole() {
+        try {
+            Intent i = new Intent(this, MainActivity.class);
+            i.addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+            startActivity(i);
+        } catch (Throwable ignored) {}
+    }
+
     // =================================================================== runner ==
     /** executes clauses sequentially on the main thread with staged timing,
      *  so intent fires (startActivity etc.) stay on the UI thread. */
     void runCommand() {
         final String cmd = cmdInput == null ? "" : cmdInput.getText().toString().trim();
         if (cmd.isEmpty()) return;
+        if (cmdInput != null) cmdInput.setText("");
 
         final long t0 = SystemClock.elapsedRealtime();
 
@@ -1883,7 +1893,11 @@ public class MainActivity extends Activity {
     boolean isVisionClause(String c) {
         String l = c.trim().toLowerCase(java.util.Locale.US);
         return l.startsWith("click") || l.startsWith("select") || l.startsWith("choose")
-                || l.startsWith("long press") || l.startsWith("long-press");
+                || l.startsWith("long press") || l.startsWith("long-press")
+                || l.startsWith("find out") || l.startsWith("look up") || l.startsWith("read")
+                || l.startsWith("check messages") || l.startsWith("check texts")
+                || l.startsWith("check my messages") || l.startsWith("read messages")
+                || l.startsWith("read texts") || l.startsWith("summarize");
     }
 
     boolean isVisionModel(AIClient.Cfg cfg) {
@@ -1898,6 +1912,7 @@ public class MainActivity extends Activity {
         openSheet(cmd);
         final int seq = runSeq;
         visionLoopActive = true;
+        readAttempted = false;
         setStatusChip("vision", INDIGO_HI, true);
         runMeta.setText("vision agent · " + ai.shortModel());
         final List<String> history = new ArrayList<>();
@@ -1923,12 +1938,12 @@ public class MainActivity extends Activity {
             String seed = firstOpenClause(cmd);
             if (seed != null) pre.add(seed);
         }
-        HarnessService.globalHome();
         final String fGoal = goal;
         ui.postDelayed(() -> {
             if (seq != runSeq || !visionLoopActive) return;
+            HarnessService.globalHome();
             if (pre.isEmpty()) {
-                ui.postDelayed(() -> visionStep(fGoal, t0, ai, seq, history, 1), 600);
+                ui.postDelayed(() -> visionStep(fGoal, t0, ai, seq, history, 1), 700);
                 return;
             }
             final List<StepRow> rows = new ArrayList<>();
@@ -1953,7 +1968,7 @@ public class MainActivity extends Activity {
                         visionStep(fGoal, t0, ai, seq, history, pre.size() + 1);
                 }, 400);
             });
-        }, 500);
+        }, 1300);
     }
 
     String firstOpenClause(String cmd) {
@@ -1993,6 +2008,8 @@ public class MainActivity extends Activity {
         }
         sb.append("Coordinates are 0-1000 fractions of the screenshot: x 0=left 1000=right, y 0=top 1000=bottom.\n");
         sb.append("Reply with EXACTLY ONE next action as a JSON array, e.g. [\"click #3\"].\n");
+        sb.append("When the goal is to find out something, browse to the page with the answer, then reply [\"read\"] instead of clicking further — do not open images or unrelated links.\n");
+        sb.append("Ignore app-install, update, sign-in and subscribe prompts; dismiss a blocking dialog with its close X, Cancel, or back — never press Install/Update.\n");
         sb.append("Allowed actions:\n");
         sb.append("- \"click #N\"   click numbered element N (preferred — exact, no coordinates)\n");
         sb.append("- \"open <app>\"   launch an app by name\n");
@@ -2001,6 +2018,7 @@ public class MainActivity extends Activity {
         sb.append("- \"press enter\"  submit / search\n");
         sb.append("- \"swipe up\" | \"swipe down\"  scroll\n");
         sb.append("- \"back\"  system back   ·   \"home\"  go home   ·   \"wait\"\n");
+        sb.append("- \"read\"  read the page and save a short answer for the user\n");
         sb.append("- \"done\"  goal complete   ·   \"fail <why>\"  cannot proceed\n");
         sb.append("Reply with ONLY the JSON array. Do not explain or reason. No prose, no markdown fences.");
         return sb.toString();
@@ -2010,6 +2028,11 @@ public class MainActivity extends Activity {
                     final int seq, final List<String> history, final int step) {
         if (!visionLoopActive || seq != runSeq) return;
         if (step > VISION_MAX_STEPS) {
+            if (isResearch(cmd) && !readAttempted) {
+                doRead(cmd, t0, ai, seq, history, step,
+                        addStep(String.format("%02d", step), "Read page", "step limit"));
+                return;
+            }
             finishVision(cmd, t0, seq, history, false, "step limit reached");
             return;
         }
@@ -2058,6 +2081,10 @@ public class MainActivity extends Activity {
         if (!visionLoopActive || seq != runSeq) return;
         final String a = action == null ? "" : action.trim();
         final String l = a.toLowerCase(java.util.Locale.US);
+        if (l.equals("read") || ((l.equals("done") || l.isEmpty()) && isResearch(cmd))) {
+            doRead(cmd, t0, ai, seq, history, step, row);
+            return;
+        }
         if (l.equals("done")) {
             stepState(row, "done", "goal reached");
             finishVision(cmd, t0, seq, history, true, "done");
@@ -2088,6 +2115,54 @@ public class MainActivity extends Activity {
         });
     }
 
+    boolean isResearch(String cmd) {
+        String l = cmd.toLowerCase(java.util.Locale.US);
+        return l.contains("find out") || l.contains("who is") || l.contains("who was")
+                || l.contains("what is") || l.contains("wikipedia")
+                || l.contains("message") || l.contains("tell me");
+    }
+
+    void doRead(final String cmd, final long t0, final AIClient.Cfg ai, final int seq,
+                final List<String> history, final int step, final StepRow row) {
+        readAttempted = true;
+        stepState(row, "run", "reading page…");
+        runner.execute(() -> {
+            final String text = HarnessService.pageText();
+            if (text == null || text.trim().isEmpty()) {
+                ui.post(() -> {
+                    if (seq != runSeq || !visionLoopActive) return;
+                    stepState(row, "fail", "no readable text on screen");
+                    ui.postDelayed(() -> visionStep(cmd, t0, ai, seq, history, step + 1), 500);
+                });
+                return;
+            }
+            AIClient.answer(ai, cmd, text, new AIClient.AnswerCb() {
+                @Override public void onAnswer(final String ans, long ms) {
+                    ui.post(() -> {
+                        if (seq != runSeq) return;
+                        if (ans == null || ans.trim().isEmpty() || ans.trim().equalsIgnoreCase("not found")) {
+                            stepState(row, "fail", "answer not on this page");
+                            ui.postDelayed(() -> visionStep(cmd, t0, ai, seq, history, step + 1), 500);
+                            return;
+                        }
+                        stepState(row, "done", "answer · " + ms + " ms");
+                        history.add("read → " + ans);
+                        saveAnswer(cmd, ans);
+                        saveChat(cmd, ans);
+                        finishVision(cmd, t0, seq, history, true, "answered");
+                    });
+                }
+                @Override public void onError(final String msg, long ms) {
+                    ui.post(() -> {
+                        if (seq != runSeq || !visionLoopActive) return;
+                        stepState(row, "fail", msg);
+                        ui.postDelayed(() -> visionStep(cmd, t0, ai, seq, history, step + 1), 500);
+                    });
+                }
+            });
+        });
+    }
+
     void finishVision(final String cmd, final long t0, final int seq, final List<String> history,
                       final boolean success, final String reason) {
         visionLoopActive = false;
@@ -2102,9 +2177,11 @@ public class MainActivity extends Activity {
         runMeta.setText(success ? "goal reached · " + history.size() + " actions" : reason);
         setStatusChip(success ? "complete" : "stopped", success ? CYAN : AMBER, false);
         saveRun(System.currentTimeMillis(), cmd, res.toString(), success ? "DONE" : "PARTIAL");
-        if ("home".equals(currentScreen)) refreshRecentFeed();
+        if (!chatSavedForRun)
+            saveChat(cmd, success ? "done · " + history.size() + " actions" : "stopped · " + reason);
         if (success) ui.postDelayed(() -> {
             if (seq == runSeq && backdrop.getVisibility() == View.VISIBLE) closeSheet();
+            bringToConsole();
         }, 1800);
     }
 
@@ -2201,11 +2278,12 @@ public class MainActivity extends Activity {
             default:        setStatusChip("no match", RED, false); break;
         }
         saveRun(System.currentTimeMillis(), cmd, res, status);
-        if ("home".equals(currentScreen)) refreshRecentFeed();
+        saveChat(cmd, res);
         // sleek exit: let the success state breathe, then tuck the sheet away
         if ("DONE".equals(status) && seq == runSeq) {
             ui.postDelayed(() -> {
                 if (seq == runSeq && backdrop.getVisibility() == View.VISIBLE) closeSheet();
+                bringToConsole();
             }, 1500);
         }
     }
@@ -2226,6 +2304,175 @@ public class MainActivity extends Activity {
             for (int i = 0; i < h.length() && i < 49; i++) nh.put(h.get(i));
             sp.edit().putString("history", nh.toString()).apply();
         } catch (Exception ignored) { }
+    }
+
+    // ================================================================== answers ==
+    void saveAnswer(String q, String a) {
+        try {
+            JSONArray arr = loadAnswers();
+            JSONObject o = new JSONObject();
+            o.put("t", System.currentTimeMillis());
+            o.put("q", q);
+            o.put("a", a);
+            JSONArray na = new JSONArray();
+            na.put(o);
+            for (int i = 0; i < arr.length() && i < 19; i++) na.put(arr.get(i));
+            sp.edit().putString("answers", na.toString()).apply();
+            refreshAnswers();
+        } catch (Exception ignored) { }
+    }
+
+    JSONArray loadAnswers() {
+        try { return new JSONArray(sp.getString("answers", "[]")); }
+        catch (Exception e) { return new JSONArray(); }
+    }
+
+    void refreshAnswers() {
+        if (answersBox == null) return;
+        answersBox.removeAllViews();
+        JSONArray arr = loadAnswers();
+        int shown = 0;
+        for (int i = 0; i < arr.length() && shown < 3; i++, shown++) {
+            try {
+                JSONObject o = arr.getJSONObject(i);
+                LinearLayout card = col(VERT);
+                card.setBackground(box(R_MD, SC_LO, BORDER));
+                card.setElevation(dp(1));
+                pad(card, 16, 12, 16, 14);
+                TextView q = tv("you — " + o.getString("q"), 11, OUTLINE, false, true);
+                q.setMaxLines(2);
+                card.addView(q);
+                TextView a = tv(o.getString("a"), 15, ON_SURF, false, false);
+                a.setLineSpacing(dp(2), 1.05f);
+                pad(a, 0, 6, 0, 0);
+                card.addView(a);
+                LinearLayout.LayoutParams p = lp(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+                p.bottomMargin = dp(8);
+                answersBox.addView(card, p);
+            } catch (Exception ignored) { }
+        }
+        if (shown == 0) {
+            TextView empty = tv("answers from web research land here — try \"go to wikipedia and find out who is Ada Lovelace\"", 12, OUTLINE, false, false);
+            empty.setLineSpacing(dp(2), 1.05f);
+            answersBox.addView(empty);
+        }
+    }
+
+    // ==================================================================== chat ==
+    void saveChat(String u, String a) {
+        try {
+            JSONArray arr = loadChat();
+            JSONObject o = new JSONObject();
+            o.put("t", System.currentTimeMillis());
+            o.put("u", u);
+            o.put("a", a);
+            JSONArray na = new JSONArray();
+            na.put(o);
+            for (int i = 0; i < arr.length() && i < 99; i++) na.put(arr.get(i));
+            sp.edit().putString("chat", na.toString()).apply();
+            chatSavedForRun = true;
+            refreshChat();
+        } catch (Exception ignored) { }
+    }
+
+    JSONArray loadChat() {
+        try {
+            if (!sp.getBoolean("chat_seed_v2", false)) {
+                seedChatFromHistory();
+                sp.edit().putBoolean("chat_seed_v2", true).apply();
+            }
+            return new JSONArray(sp.getString("chat", "[]"));
+        } catch (Exception e) { return new JSONArray(); }
+    }
+
+    void seedChatFromHistory() {
+        try {
+            JSONArray h = loadHistory();
+            JSONArray out = new JSONArray();
+            int n = Math.min(10, h.length());
+            for (int i = 0; i < n; i++) {
+                JSONObject o = h.getJSONObject(i);
+                String res = o.optString("res", "");
+                if (res.isEmpty()) continue;
+                int ri = res.lastIndexOf("read → ");
+                if (ri >= 0) res = res.substring(ri + "read → ".length()).trim();
+                JSONObject c = new JSONObject();
+                c.put("t", o.optLong("t", 0));
+                c.put("u", o.optString("cmd", ""));
+                c.put("a", res);
+                out.put(c);
+            }
+            sp.edit().putString("chat", out.toString()).apply();
+        } catch (Exception ignored) { }
+    }
+
+    void refreshChat() {
+        if (chatBox == null) return;
+        chatBox.removeAllViews();
+        JSONArray arr = loadChat();
+        if (arr.length() == 0) {
+            LinearLayout row = col(HORIZ);
+            row.setGravity(Gravity.START);
+            TextView b = tv("hey — i run on this phone. ask me to open apps, set things, or find stuff out.\ntry \"check messages\" or \"go to wikipedia and find out who is Ada Lovelace\"",
+                    14, ON_SURF, false, false);
+            b.setBackground(box(20, SC_LO, BORDER));
+            pad(b, 14, 10, 14, 10);
+            b.setLineSpacing(dp(2), 1.05f);
+            b.setMaxWidth((int) (getResources().getDisplayMetrics().widthPixels * 0.82f));
+            row.addView(b);
+            chatBox.addView(row);
+        } else {
+            long lastT = 0;
+            for (int i = arr.length() - 1; i >= 0; i--) {
+                try {
+                    JSONObject o = arr.getJSONObject(i);
+                    long t = o.optLong("t", 0);
+                    if (t - lastT > 5 * 60 * 1000) {
+                        TextView sep = tv(timeStr(t), 10, OUTLINE, false, true);
+                        sep.setGravity(Gravity.CENTER);
+                        pad(sep, 0, 12, 0, 6);
+                        chatBox.addView(sep, lp(ViewGroup.LayoutParams.MATCH_PARENT,
+                                ViewGroup.LayoutParams.WRAP_CONTENT));
+                    }
+                    lastT = t;
+                    chatBox.addView(userBubble(o.optString("u", "")));
+                    chatBox.addView(agentBubble(o.optString("a", "")));
+                } catch (Exception ignored) { }
+            }
+        }
+        if (chatScroll != null) chatScroll.post(() -> chatScroll.fullScroll(View.FOCUS_DOWN));
+    }
+
+    View userBubble(String text) {
+        LinearLayout row = col(HORIZ);
+        row.setGravity(Gravity.END);
+        LinearLayout.LayoutParams rp = lp(ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT);
+        rp.topMargin = dp(6);
+        TextView b = tv(text, 15, Color.WHITE, false, false);
+        b.setBackground(box(20, INDIGO, 0));
+        pad(b, 14, 10, 14, 10);
+        b.setLineSpacing(dp(2), 1.05f);
+        b.setMaxWidth((int) (getResources().getDisplayMetrics().widthPixels * 0.78f));
+        row.addView(b);
+        row.setLayoutParams(rp);
+        return row;
+    }
+
+    View agentBubble(String text) {
+        LinearLayout row = col(HORIZ);
+        row.setGravity(Gravity.START);
+        LinearLayout.LayoutParams rp = lp(ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT);
+        rp.topMargin = dp(6);
+        TextView b = tv(text, 15, ON_SURF, false, false);
+        b.setBackground(box(20, SC_LO, BORDER));
+        pad(b, 14, 10, 14, 10);
+        b.setLineSpacing(dp(2), 1.05f);
+        b.setMaxWidth((int) (getResources().getDisplayMetrics().widthPixels * 0.82f));
+        row.addView(b);
+        row.setLayoutParams(rp);
+        return row;
     }
 
     // ==================================================================== voice ==
