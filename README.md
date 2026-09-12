@@ -88,7 +88,7 @@ into clauses, then the same on-device skills execute them. One-tap presets in
 |---|---|---|---|
 | **ZEN** | `https://opencode.ai/zen/v1` | openai | `nemotron-3-ultra-free` |
 | **OPENROUTER** | `https://openrouter.ai/api/v1` | openai | (pick one) |
-| **GO** | `https://opencode.ai/zen/go/v1` | openai | `deepseek-v4-flash` |
+| **GO** | `https://opencode.ai/zen/go/v1` | openai | `glm-5.3-flash` |
 | **SELF-HOST** | your LAN `opencode serve` | opencode | `provider/model` |
 
 - **Two transports:** OpenAI-compatible `POST /chat/completions`, or native
@@ -105,14 +105,22 @@ Byte-for-byte HTTP contracts live in [`API-CURL.md`](API-CURL.md).
 With Android 11+, Accessibility enabled, and `Settings → Vision agent` on, the
 app runs an observe → act loop:
 
-1. Screenshot the screen (overlay hidden), scaled to a 720px JPEG.
-2. Send the goal + last 5 actions + image to the vision model.
-3. Get back **exactly one** action: `open`, `tap x y`, `type`, `press enter`,
-   `swipe up/down`, `back`, `home`, `wait`, `done`, or `fail`.
-4. Execute, log, screenshot again — capped at 8 steps.
+1. Screenshot the screen and the accessibility node tree, then draw **numbered
+   boxes** over every clickable element (set-of-mark).
+2. Send the goal + last 5 actions + marked JPEG + the `#id "label"` element list
+   to the vision model.
+3. Get back **exactly one** action: `click #N` (preferred), `open`, `tap x y`,
+   `type`, `press enter`, `swipe up/down`, `back`, `home`, `wait`, `done`, or
+   `fail`.
+4. Execute (element taps use the node's exact bounds — no coordinate guessing),
+   log, screenshot again — capped at 16 steps.
 
-There's also a built-in path that triggers it for `open chrome and search for …`
-commands even when the toggle is off.
+Deterministic clauses in a command (`open …`, `search for …`, `volume …`) run
+through the offline rules instantly; only on-screen actions hit the vision
+model. Without a vision model, vision falls back to raw coordinate taps.
+
+Commands with a `click/select/…` clause auto-enter this mode; `Settings → Vision
+agent` forces it for every command.
 
 ## How it works
 

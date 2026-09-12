@@ -92,7 +92,7 @@ public class MainActivity extends Activity {
     LinearLayout sheet, stepsBox, sheetStatBox;
     ValueAnimator chipPulse;
     int runSeq = 0; // guards auto-dismiss against newer runs / manual dismiss
-    static final int VISION_MAX_STEPS = 8;
+    static final int VISION_MAX_STEPS = 16;
     boolean visionLoopActive = false; // observe→act agent running
     TextView planCmd, runMeta;
 
@@ -976,7 +976,7 @@ public class MainActivity extends Activity {
         pad(presets, 0, 2, 0, 6);
         presetChip(presets, "ZEN",       "https://opencode.ai/zen/v1",     "openai", "nemotron-3-ultra-free");
         presetChip(presets, "OPENROUTER","https://openrouter.ai/api/v1",  "openai", "");
-        presetChip(presets, "GO",        "https://opencode.ai/zen/go/v1", "openai", "deepseek-v4-flash");
+        presetChip(presets, "GO",        "https://opencode.ai/zen/go/v1", "openai", "glm-5.3-flash");
         presetChip(presets, "SELF-HOST", "",                              "opencode", "");
         phs.addView(presets, new ViewGroup.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
@@ -1840,11 +1840,14 @@ public class MainActivity extends Activity {
         android.util.Log.i("PH_AI", "cmd='" + cmd + "' ready=" + ai.ready()
                 + " on=" + ai.enabled + " ep=" + ai.endpoint + " model=" + ai.model + " mode=" + ai.mode);
         if (ai.ready()) {
-            // vision agent runs when the user enabled it (and it's usable), or for the
-            // built-in chrome/search case; otherwise use the fast deterministic planner.
+            // hybrid: rules execute every clause they understand; vision only runs for
+            // on-screen actions (click/select/…) or when the user enabled the agent.
             boolean visionUsable = android.os.Build.VERSION.SDK_INT >= 30 && HarnessService.isEnabled();
             boolean visionAgent = sp.getBoolean("set_vision", false);
-            if ((visionUsable && visionAgent) || isVisionNeeded(cmd, ai)) {
+            boolean vision = visionUsable && (visionAgent || hasVisionClause(cmd));
+            android.util.Log.i("PH_AI", "vision=" + vision + " (usable=" + visionUsable
+                    + " agent=" + visionAgent + " clause=" + hasVisionClause(cmd) + ")");
+            if (vision) {
                 runVisionLoop(cmd, t0, ai);
                 return;
             }
@@ -1872,16 +1875,15 @@ public class MainActivity extends Activity {
         }, 90);
     }
 
-    boolean isVisionNeeded(String cmd, AIClient.Cfg cfg) {
-        // The screenshot API (AccessibilityService.takeScreenshot) is API 30+, and the
-        // service must be bound — otherwise vision cannot run and we'd just dead-end.
-        boolean usable = android.os.Build.VERSION.SDK_INT >= 30 && HarnessService.isEnabled();
-        String l = cmd.toLowerCase(java.util.Locale.US);
-        boolean wantsVision = (l.contains("chrome") || l.contains("search for")) && l.contains("cat");
-        if (!wantsVision) wantsVision = l.contains("chrome") && l.contains("search");
-        android.util.Log.i("PH_AI", "isVisionNeeded " + (wantsVision && usable)
-                + " (want=" + wantsVision + " usable=" + usable + ") for \"" + cmd + "\"");
-        return wantsVision && usable;
+    boolean hasVisionClause(String cmd) {
+        for (String c : harness.clauses(cmd)) if (isVisionClause(c)) return true;
+        return false;
+    }
+
+    boolean isVisionClause(String c) {
+        String l = c.trim().toLowerCase(java.util.Locale.US);
+        return l.startsWith("click") || l.startsWith("select") || l.startsWith("choose")
+                || l.startsWith("long press") || l.startsWith("long-press");
     }
 
     boolean isVisionModel(AIClient.Cfg cfg) {
@@ -1900,26 +1902,58 @@ public class MainActivity extends Activity {
         runMeta.setText("vision agent · " + ai.shortModel());
         final List<String> history = new ArrayList<>();
 
-        // start from the app named in the command (deterministic), else the home screen
-        String seed = firstOpenClause(cmd);
+        // hybrid: run the deterministic prefix through the rules engine first, then hand
+        // the vision agent only the clause that needs eyes (click/select/…)
+        final List<String> pre = new ArrayList<>();
+        String goal = cmd;
+        int vi = -1;
+        final List<String> clauses = new ArrayList<>();
+        for (String c : harness.clauses(cmd)) if (!c.trim().isEmpty()) clauses.add(c.trim());
+        for (int i = 0; i < clauses.size(); i++)
+            if (isVisionClause(clauses.get(i))) { vi = i; break; }
+        if (vi >= 0) {
+            for (int i = 0; i < vi; i++) pre.add(clauses.get(i));
+            StringBuilder g = new StringBuilder();
+            for (int i = vi; i < clauses.size(); i++) {
+                if (g.length() > 0) g.append(" and ");
+                g.append(clauses.get(i));
+            }
+            goal = g.toString();
+        } else {
+            String seed = firstOpenClause(cmd);
+            if (seed != null) pre.add(seed);
+        }
         HarnessService.globalHome();
+        final String fGoal = goal;
         ui.postDelayed(() -> {
             if (seq != runSeq || !visionLoopActive) return;
-            if (seed != null) {
-                final StepRow r = addStep("01", "Open target", seed);
-                stepState(r, "run", "");
-                runner.execute(() -> {
-                    List<String> out = harness.executeOne(seed);
-                    String res = out.isEmpty() ? "" : out.get(0);
+            if (pre.isEmpty()) {
+                ui.postDelayed(() -> visionStep(fGoal, t0, ai, seq, history, 1), 600);
+                return;
+            }
+            final List<StepRow> rows = new ArrayList<>();
+            for (int i = 0; i < pre.size(); i++)
+                rows.add(addStep(String.format("%02d", i + 1), pre.get(i), "queued"));
+            runner.execute(() -> {
+                for (int i = 0; i < pre.size(); i++) {
+                    final StepRow r = rows.get(i);
+                    final String clause = pre.get(i);
+                    ui.post(() -> { if (seq == runSeq) stepState(r, "run", ""); });
+                    List<String> out = harness.executeOne(clause);
+                    final String res = out.isEmpty() ? "" : out.get(0);
+                    final boolean ok = !(res.startsWith("✗") || res.startsWith("?"));
                     ui.post(() -> {
                         if (seq != runSeq) return;
-                        stepState(r, res.startsWith("✗") || res.startsWith("?") ? "fail" : "done", seed);
-                        history.add(seed + " → " + cleanRes(res));
+                        stepState(r, ok ? "done" : "fail", cleanRes(res));
+                        history.add(clause + " → " + cleanRes(res));
                     });
-                });
-            }
-            ui.postDelayed(() -> visionStep(cmd, t0, ai, seq, history, seed == null ? 1 : 2), 900);
-        }, 600);
+                }
+                ui.postDelayed(() -> {
+                    if (seq == runSeq && visionLoopActive)
+                        visionStep(fGoal, t0, ai, seq, history, pre.size() + 1);
+                }, 400);
+            });
+        }, 500);
     }
 
     String firstOpenClause(String cmd) {
@@ -1935,7 +1969,7 @@ public class MainActivity extends Activity {
         return res == null ? "" : res.replaceFirst("^[▸✗?]\\s*", "").trim();
     }
 
-    String visionAgentPrompt(String cmd, List<String> history) {
+    String visionAgentPrompt(String cmd, List<String> history, List<HarnessService.Node> nodes) {
         StringBuilder sb = new StringBuilder();
         sb.append("You control an Android phone by looking at screenshots.\n");
         sb.append("Goal: \"").append(cmd).append("\"\n");
@@ -1945,18 +1979,30 @@ public class MainActivity extends Activity {
             sb.append("Actions already taken:\n");
             int from = Math.max(0, history.size() - 5);
             for (int i = from; i < history.size(); i++) sb.append("- ").append(history.get(i)).append("\n");
-            sb.append("If the goal is already achieved, reply [\"done\"].\n");
+            sb.append("If every part of the goal is visibly complete (including all clicks and typing), reply [\"done\"].\n");
         }
-        sb.append("Reply with EXACTLY ONE next action as a JSON array, e.g. [\"tap 500 150\"].\n");
+        if (nodes != null && !nodes.isEmpty()) {
+            sb.append("Numbered boxes on the screenshot mark the clickable elements:\n");
+            for (int i = 0; i < nodes.size(); i++) {
+                HarnessService.Node n = nodes.get(i);
+                String kind = n.editable ? "input" : n.scrollable ? "scroll" : "button";
+                sb.append("#").append(i + 1).append(" ").append(kind);
+                if (!n.label.isEmpty()) sb.append(" \"").append(n.label).append("\"");
+                sb.append("\n");
+            }
+        }
+        sb.append("Coordinates are 0-1000 fractions of the screenshot: x 0=left 1000=right, y 0=top 1000=bottom.\n");
+        sb.append("Reply with EXACTLY ONE next action as a JSON array, e.g. [\"click #3\"].\n");
         sb.append("Allowed actions:\n");
+        sb.append("- \"click #N\"   click numbered element N (preferred — exact, no coordinates)\n");
         sb.append("- \"open <app>\"   launch an app by name\n");
-        sb.append("- \"tap <x> <y>\"  coordinates 0-1000 (x right, y down)\n");
-        sb.append("- \"type <text>\"  type into the focused field\n");
+        sb.append("- \"tap <x> <y>\"  raw coordinates 0-1000, only if no numbered element matches\n");
+        sb.append("- \"type <text>\"  type into the focused field (or \"type <text> into #N\")\n");
         sb.append("- \"press enter\"  submit / search\n");
         sb.append("- \"swipe up\" | \"swipe down\"  scroll\n");
         sb.append("- \"back\"  system back   ·   \"home\"  go home   ·   \"wait\"\n");
         sb.append("- \"done\"  goal complete   ·   \"fail <why>\"  cannot proceed\n");
-        sb.append("Reply with ONLY the JSON array. No prose, no markdown.");
+        sb.append("Reply with ONLY the JSON array. Do not explain or reason. No prose, no markdown fences.");
         return sb.toString();
     }
 
@@ -1974,14 +2020,14 @@ public class MainActivity extends Activity {
         // capture a clean screen (our overlay hidden)
         backdrop.setVisibility(View.GONE);
         sheet.setVisibility(View.GONE);
-        ui.postDelayed(() -> HarnessService.screenshotBase64(new HarnessService.ShotCb() {
-            @Override public void onShot(final String b64, int w, int h) {
+        ui.postDelayed(() -> HarnessService.screenshotMarked(new HarnessService.MarkedCb() {
+            @Override public void onShot(final String b64, int w, int h, final java.util.List<HarnessService.Node> nodes) {
                 ui.post(() -> {
                     if (seq != runSeq || !visionLoopActive) return;
                     backdrop.setVisibility(View.VISIBLE);
                     sheet.setVisibility(View.VISIBLE);
                     stepState(row, "run", "thinking…");
-                    AIClient.stepWithImage(ai, visionAgentPrompt(cmd, history), b64, new AIClient.StepCb() {
+                    AIClient.stepWithImage(ai, visionAgentPrompt(cmd, history, nodes), b64, new AIClient.StepCb() {
                         @Override public void onAction(final String action, long ms) {
                             ui.post(() -> visionAct(cmd, t0, ai, seq, history, step, row, action));
                         }
@@ -2004,7 +2050,7 @@ public class MainActivity extends Activity {
                     finishVision(cmd, t0, seq, history, false, "no screenshot · " + msg);
                 });
             }
-        }), 700);
+        }), 400);
     }
 
     void visionAct(final String cmd, final long t0, final AIClient.Cfg ai, final int seq,
@@ -2012,9 +2058,14 @@ public class MainActivity extends Activity {
         if (!visionLoopActive || seq != runSeq) return;
         final String a = action == null ? "" : action.trim();
         final String l = a.toLowerCase(java.util.Locale.US);
-        if (l.equals("done") || l.isEmpty()) {
+        if (l.equals("done")) {
             stepState(row, "done", "goal reached");
             finishVision(cmd, t0, seq, history, true, "done");
+            return;
+        }
+        if (l.isEmpty()) {
+            stepState(row, "fail", "no action parsed");
+            finishVision(cmd, t0, seq, history, false, "no action parsed");
             return;
         }
         if (l.startsWith("fail")) {
@@ -2032,7 +2083,7 @@ public class MainActivity extends Activity {
                 if (seq != runSeq || !visionLoopActive) return;
                 stepState(row, ok ? "done" : "fail", shown + "  ·  " + res);
                 history.add(a + " → " + res);
-                ui.postDelayed(() -> visionStep(cmd, t0, ai, seq, history, step + 1), 800);
+                ui.postDelayed(() -> visionStep(cmd, t0, ai, seq, history, step + 1), 500);
             });
         });
     }
@@ -2067,7 +2118,7 @@ public class MainActivity extends Activity {
         final StepRow planRow = addStep("01", "Ask AI planner",
                 ai.mode.equals("opencode") ? "opencode server · " + ai.shortModel()
                                            : "openai-compat · " + ai.shortModel());
-        AIClient.plan(ai, cmd, new AIClient.Callback() {
+        AIClient.plan(ai, cmd, harness.appLabels(), new AIClient.Callback() {
             @Override public void onPlan(final List<String> cs, long ms) {
                 ui.post(() -> {
                     if (seq != runSeq) return;

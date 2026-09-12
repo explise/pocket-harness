@@ -109,7 +109,11 @@ public class Harness {
         }
         // vision actions from LLM seeing page image
         if ((m = rx("^tap\\s+(\\d{1,4})\\s+(\\d{1,4})$", l)) != null) return tapXY(m.group(1), m.group(2));
+        if ((m = rx("^(?:tap|click)\\s+#(\\d{1,3})$", l)) != null) return clickIndex(m.group(1));
         if ((m = rx("^tap\\s+(.+)$", l)) != null) return tapNamed(m.group(1));
+        if ((m = java.util.regex.Pattern.compile("^(?:type|input)\\s+(.+?)\\s+into\\s+#(\\d{1,3})$",
+                java.util.regex.Pattern.CASE_INSENSITIVE).matcher(c.trim())).find())
+            return typeInto(m.group(1), m.group(2));
         if ((m = rx("^(?:type|input)\\s+(.+)$", l)) != null) return inputText(m.group(1));
         if (l.equals("swipe up") || l.equals("scroll up")) return swipe(500, 750, 500, 250);
         if (l.equals("swipe down") || l.equals("scroll down")) return swipe(500, 250, 500, 750);
@@ -130,6 +134,19 @@ public class Harness {
     private static java.util.regex.Matcher rx(String re, String s) {
         java.util.regex.Matcher m = java.util.regex.Pattern.compile(re).matcher(s);
         return m.find() ? m : null;
+    }
+
+    private int[] realSize() {
+        android.util.DisplayMetrics dm = new android.util.DisplayMetrics();
+        try {
+            android.view.WindowManager wm =
+                    (android.view.WindowManager) ctx.getSystemService(Context.WINDOW_SERVICE);
+            if (wm != null && wm.getDefaultDisplay() != null)
+                wm.getDefaultDisplay().getRealMetrics(dm);
+        } catch (Throwable ignored) { }
+        if (dm.widthPixels <= 0 || dm.heightPixels <= 0)
+            dm = ctx.getResources().getDisplayMetrics();
+        return new int[]{dm.widthPixels, dm.heightPixels};
     }
 
     private List<String> item(String s) {
@@ -172,6 +189,19 @@ public class Harness {
             if (s.equals(e.getKey())) return e.getValue();
         }
         return s;
+    }
+
+    /** launchable app labels, alphabetical, for the planner prompt */
+    public List<String> appLabels() {
+        Intent main = new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER);
+        List<ResolveInfo> apps = pm.queryIntentActivities(main, 0);
+        java.util.TreeSet<String> labels = new java.util.TreeSet<>(String.CASE_INSENSITIVE_ORDER);
+        for (ResolveInfo ri : apps) {
+            String l = String.valueOf(ri.loadLabel(pm)).trim();
+            if (!l.isEmpty()) labels.add(l);
+        }
+        List<String> out = new ArrayList<>(labels);
+        return out.size() > 120 ? new ArrayList<>(out.subList(0, 120)) : out;
     }
 
     /** returns {label, pkg} of best-matching launchable app or null */
@@ -500,9 +530,9 @@ public class Harness {
         try {
             int x = Integer.parseInt(xs), y = Integer.parseInt(ys);
             // 0-1000 coord from LLM -> screen pixels
-            android.util.DisplayMetrics dm = ctx.getResources().getDisplayMetrics();
-            int px = x <= 1000 ? Math.round(x * dm.widthPixels / 1000f) : x;
-            int py = y <= 1000 ? Math.round(y * dm.heightPixels / 1000f) : y;
+            int[] sz = realSize();
+            int px = x <= 1000 ? Math.round(x * sz[0] / 1000f) : x;
+            int py = y <= 1000 ? Math.round(y * sz[1] / 1000f) : y;
             boolean ok = HarnessService.tap(px, py);
             return item(ok ? "▸ tapped " + px + "," + py : "✗ tap failed — enable Accessibility");
         } catch (Exception e) { return item("✗ tap: " + e.getMessage()); }
@@ -516,6 +546,20 @@ public class Harness {
         return tapXY("500", "500");
     }
 
+    private List<String> clickIndex(String ids) {
+        int i = Integer.parseInt(ids);
+        boolean ok = HarnessService.clickIndex(i);
+        return item(ok ? "▸ clicked #" + i : "✗ no element #" + i + " on screen");
+    }
+
+    private List<String> typeInto(String txt, String ids) {
+        int i = Integer.parseInt(ids);
+        if (!HarnessService.clickIndex(i)) return item("✗ no element #" + i + " on screen");
+        try { Thread.sleep(350); } catch (Exception ignored) { }
+        boolean ok = HarnessService.inputText(txt);
+        return item(ok ? "▸ typed \"" + txt + "\" into #" + i : "✗ input failed — no editable #" + i);
+    }
+
     private List<String> inputText(String txt) {
         boolean ok = HarnessService.inputText(txt);
         return item(ok ? "▸ typed \"" + txt + "\"" : "✗ input failed");
@@ -523,11 +567,11 @@ public class Harness {
 
     private List<String> swipe(int x1, int y1, int x2, int y2) {
         if (!HarnessService.isEnabled()) return item("! enable Accessibility → Pocket Harness for swipes");
-        android.util.DisplayMetrics dm = ctx.getResources().getDisplayMetrics();
-        int px1 = Math.round(x1 * dm.widthPixels / 1000f);
-        int py1 = Math.round(y1 * dm.heightPixels / 1000f);
-        int px2 = Math.round(x2 * dm.widthPixels / 1000f);
-        int py2 = Math.round(y2 * dm.heightPixels / 1000f);
+        int[] sz = realSize();
+        int px1 = Math.round(x1 * sz[0] / 1000f);
+        int py1 = Math.round(y1 * sz[1] / 1000f);
+        int px2 = Math.round(x2 * sz[0] / 1000f);
+        int py2 = Math.round(y2 * sz[1] / 1000f);
         boolean ok = HarnessService.swipe(px1, py1, px2, py2, 300);
         return item(ok ? "▸ swiped " + x1 + "," + y1 + " → " + x2 + "," + y2
                 : "✗ swipe failed — enable Accessibility");

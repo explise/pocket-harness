@@ -31,6 +31,10 @@ Reply with ONLY a JSON array of step strings. No prose, no markdown fences.
 User request: "<your command>"
 ```
 
+Note: the planner prompt also appends
+`Apps installed on this phone: <comma-separated labels>` so it can choose real
+apps instead of falling back to a web search.
+
 ---
 
 ## 1) OPENAI-compatible transport (Zen / OpenRouter / LM Studio / Ollama…)

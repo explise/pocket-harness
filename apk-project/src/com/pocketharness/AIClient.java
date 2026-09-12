@@ -97,30 +97,23 @@ public class AIClient {
 
     /** fire an async planning request */
     public static void plan(final Cfg cfg, final String cmd, final Callback cb) {
-        planWithImage(cfg, cmd, null, cb);
+        plan(cfg, cmd, null, cb);
     }
 
-    /** vision: same as plan but with optional base64 JPEG screenshot */
-    public static void planWithImage(final Cfg cfg, final String cmd, final String base64Jpeg, final Callback cb) {
-        final String prompt = buildPrompt(cmd);
+    /** same, with the installed-app list so the planner can pick real apps */
+    public static void plan(final Cfg cfg, final String cmd, final java.util.List<String> apps, final Callback cb) {
+        final String prompt = buildPrompt(cmd, apps);
         POOL.execute(new Runnable() { public void run() {
             long t0 = SystemClock.elapsedRealtime();
-            boolean vision = base64Jpeg != null && !base64Jpeg.isEmpty();
             android.util.Log.i("PH_AI", "planning via " + cfg.mode + " -> "
-                    + cfg.endpoint + " model=" + cfg.model + (vision ? " +image " + base64Jpeg.length() + "b" : ""));
+                    + cfg.endpoint + " model=" + cfg.model + " apps=" + (apps == null ? 0 : apps.size()));
             try {
-                String reply;
-                if (vision) {
-                    // vision always via OpenAI transport (even for opencode Go vision models like kimi-k2.5 etc. which are openai-compatible)
-                    reply = viaOpenAIVision(cfg, prompt, base64Jpeg);
-                } else {
-                    reply = "opencode".equals(cfg.mode)
-                            ? viaOpenCode(cfg, prompt)
-                            : viaOpenAI(cfg, prompt);
-                }
+                String reply = "opencode".equals(cfg.mode)
+                        ? viaOpenCode(cfg, prompt)
+                        : viaOpenAI(cfg, prompt);
                 long ms = Math.max(1, SystemClock.elapsedRealtime() - t0);
                 List<String> clauses = parsePlan(reply, cmd);
-                android.util.Log.i("PH_AI", "plan OK in " + ms + " ms: " + clauses + (vision ? " (vision)" : ""));
+                android.util.Log.i("PH_AI", "plan OK in " + ms + " ms: " + clauses);
                 cb.onPlan(clauses, ms);
             } catch (Exception e) {
                 long ms = Math.max(1, SystemClock.elapsedRealtime() - t0);
@@ -169,13 +162,26 @@ public class AIClient {
         try {
             String arr = s.replaceFirst("(?s)^.*?\\[", "[").replaceFirst("(?s)\\].*$", "]");
             JSONArray a = new JSONArray(arr);
-            if (a.length() > 0) return String.valueOf(a.opt(0)).trim();
+            if (a.length() > 0) {
+                String first = String.valueOf(a.opt(0)).trim();
+                if (looksLikeAction(first)) return first;
+            }
         } catch (Exception ignored) { }
+        java.util.regex.Matcher m = java.util.regex.Pattern
+                .compile("\\[\"([^\"]{1,120})\"\\]").matcher(s);
+        String last = null;
+        while (m.find()) { last = m.group(1); }
+        if (looksLikeAction(last)) return last.trim();
         for (String ln : s.split("\n")) {
             String t = ln.trim().replaceFirst("^[-*•\\d.)\\s]+", "").trim();
-            if (!t.isEmpty()) return t;
+            if (looksLikeAction(t)) return t;
         }
         return "";
+    }
+
+    private static boolean looksLikeAction(String s) {
+        return s != null && s.toLowerCase(java.util.Locale.US)
+                .matches("^(open|tap|type|press|swipe|back|home|wait|done|fail|click|select|choose)\\b.*");
     }
 
     /** fetch selectable models from the configured engine.
@@ -320,21 +326,31 @@ public class AIClient {
 
     // ------------------------------------------------------------------ prompt
 
-    private static String buildPrompt(String cmd) {
-        return "You are the planner inside PocketHarness, an on-device phone agent.\n"
-             + "Split the user request into minimal executable steps.\n"
-             + "Each step must be ONE short clause using ONLY these verbs:\n"
-             + "- open/launch <app>\n"
-             + "- play <song> [on youtube|ytmusic|spotify]\n"
-             + "- volume up | down | mute | unmute | set volume to N%\n"
-             + "- brightness N% | max brightness | min brightness\n"
-             + "- torch on | torch off\n"
-             + "- call <number> | text <number> saying <msg>\n"
-             + "- navigate to <place> | search for <query> | google <query>\n"
-             + "- camera | battery | time | date | wifi settings | bluetooth settings\n"
-             + "- share <text>\n"
-             + "Reply with ONLY a JSON array of step strings. No prose, no markdown fences.\n\n"
-             + "User request: \"" + cmd.trim() + "\"";
+    private static String buildPrompt(String cmd, java.util.List<String> apps) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("You are the planner inside PocketHarness, an on-device phone agent.\n");
+        sb.append("Split the user request into minimal executable steps.\n");
+        sb.append("Each step must be ONE short clause using ONLY these verbs:\n");
+        sb.append("- open/launch <app>            (prefer one of the installed apps listed below)\n");
+        sb.append("- play <song> [on youtube|ytmusic|spotify]\n");
+        sb.append("- volume up | down | mute | unmute | set volume to N%\n");
+        sb.append("- brightness N% | max brightness | min brightness\n");
+        sb.append("- torch on | torch off\n");
+        sb.append("- call <number> | text <number> saying <msg>\n");
+        sb.append("- navigate to <place> | search for <query> | google <query>\n");
+        sb.append("- camera | battery | time | date | wifi settings | bluetooth settings\n");
+        sb.append("- share <text>\n");
+        sb.append("Reply with ONLY a JSON array of step strings. No prose, no markdown fences.\n");
+        if (apps != null && !apps.isEmpty()) {
+            sb.append("\nApps installed on this phone:\n");
+            for (int i = 0; i < apps.size(); i++) {
+                if (i > 0) sb.append(", ");
+                sb.append(apps.get(i));
+            }
+            sb.append("\n");
+        }
+        sb.append("\nUser request: \"").append(cmd.trim()).append("\"");
+        return sb.toString();
     }
 
     /** robustly extract step list from whatever the model muttered */
@@ -494,6 +510,9 @@ public class AIClient {
             if (msg != null) {
                 String t = msg.optString("content", "").trim();
                 if (!t.isEmpty()) return t;
+                // reasoning models sometimes return only reasoning_content
+                String r = msg.optString("reasoning_content", msg.optString("reasoning", "")).trim();
+                if (!r.isEmpty()) return r;
             }
             String t = c0.optString("text", "").trim();
             if (!t.isEmpty()) return t;
@@ -582,7 +601,7 @@ public class AIClient {
         JSONObject body = new JSONObject()
                 .put("model", shortModel)
                 .put("temperature", 0)
-                .put("max_tokens", 512)
+                .put("max_tokens", 4096)
                 .put("messages", new JSONArray().put(
                         new JSONObject().put("role", "user").put("content", contentArr)));
         android.util.Log.i("PH_AI", "vision POST " + url + " img " + base64Jpeg.length());
